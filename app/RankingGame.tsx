@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Mode = "solo" | "versus";
 
@@ -47,6 +47,14 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
   const [p2Tries, setP2Tries] = useState<number | null>(null);
   const [wins, setWins] = useState({ p1: 0, p2: 0 });
 
+  // السحب
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const arrRef = useRef(arr);
+  arrRef.current = arr;
+  const dragRef = useRef<number | null>(null);
+  dragRef.current = dragIndex;
+
   const isVersus = mode === "versus";
 
   const setupRound = useCallback((lvl: number) => {
@@ -74,13 +82,44 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
     setupRound(2);
   };
 
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir;
-    if (j < 0 || j >= arr.length) return;
-    const next = [...arr];
-    [next[i], next[j]] = [next[j], next[i]];
-    setArr(next);
+  // أي صفّ تحت المؤشّر حاليًّا (حسب منتصف كل صفّ)
+  const indexAtY = (y: number) => {
+    const list = listRef.current;
+    if (!list) return null;
+    const rows = Array.from(list.children) as HTMLElement[];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return i;
+    }
+    return rows.length - 1;
   };
+
+  const startDrag = (i: number) => setDragIndex(i);
+
+  useEffect(() => {
+    if (dragIndex === null) return;
+    const onMove = (e: PointerEvent) => {
+      e.preventDefault();
+      const from = dragRef.current;
+      if (from === null) return;
+      const to = indexAtY(e.clientY);
+      if (to === null || to === from) return;
+      const next = [...arrRef.current];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      setArr(next);
+      setDragIndex(to);
+    };
+    const onUp = () => setDragIndex(null);
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [dragIndex]);
 
   const guess = () => {
     const c = countCorrect(arr, secret);
@@ -89,14 +128,12 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
 
     if (c < level) return; // ما اكتشف الترتيب بعد
 
-    // اكتشف الترتيب كامل
     if (!isVersus) {
       setSolved(true);
       return;
     }
     if (vsTurn === 1) {
       setP1Tries(tries);
-      // اللاعب الثاني يحلّ نفس السرّ من جديد
       setArr([...tokens]);
       setAttempts([]);
       setVsTurn(2);
@@ -137,7 +174,7 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
         </button>
         <h1 className="text-4xl font-extrabold tracking-tight">🧩 رتّبها</h1>
         <p className="text-slate-400 mt-2">
-          للعناصر ترتيب سرّي — خمّن، واكتشف كم وحدة في مكانها، وحاول مرّة ثانية
+          للعناصر ترتيب سرّي — اسحب لترتّبها، وشوف كم وحدة في مكانها
         </p>
       </header>
 
@@ -200,37 +237,32 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
 
         {!solved ? (
           <>
-            {/* القائمة القابلة لإعادة الترتيب */}
-            <ol className="flex flex-col gap-2">
-              {arr.map((item, i) => (
-                <li
-                  key={item}
-                  className="flex items-center gap-3 rounded-2xl px-3 py-2 border bg-slate-900/50 border-slate-700"
-                >
-                  <span className="w-6 text-center text-slate-400 font-bold tabular-nums">
-                    {i + 1}
-                  </span>
-                  <span className="flex-1 text-3xl">{item}</span>
-                  <span className="flex gap-1">
-                    <button
-                      onClick={() => move(i, -1)}
-                      disabled={i === 0}
-                      className="w-9 h-9 rounded-xl bg-slate-700 disabled:opacity-30 active:scale-90 transition text-lg"
-                      aria-label="تحريك لأعلى"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      onClick={() => move(i, 1)}
-                      disabled={i === arr.length - 1}
-                      className="w-9 h-9 rounded-xl bg-slate-700 disabled:opacity-30 active:scale-90 transition text-lg"
-                      aria-label="تحريك لأسفل"
-                    >
-                      ▼
-                    </button>
-                  </span>
-                </li>
-              ))}
+            {/* القائمة بالسحب */}
+            <ol ref={listRef} className="flex flex-col gap-2 select-none">
+              {arr.map((item, i) => {
+                const dragging = dragIndex === i;
+                return (
+                  <li
+                    key={item}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      startDrag(i);
+                    }}
+                    style={{ touchAction: "none" }}
+                    className={`flex items-center gap-3 rounded-2xl px-3 py-3 border cursor-grab active:cursor-grabbing transition ${
+                      dragging
+                        ? "bg-indigo-500/25 border-indigo-400 scale-[1.03] shadow-xl"
+                        : "bg-slate-900/50 border-slate-700"
+                    }`}
+                  >
+                    <span className="w-6 text-center text-slate-400 font-bold tabular-nums">
+                      {i + 1}
+                    </span>
+                    <span className="flex-1 text-3xl pointer-events-none">{item}</span>
+                    <span className="text-slate-500 text-xl leading-none">⠿</span>
+                  </li>
+                );
+              })}
             </ol>
 
             <button
