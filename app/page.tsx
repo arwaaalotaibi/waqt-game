@@ -3,8 +3,9 @@
 import { useState } from "react";
 import TimingGame from "./TimingGame";
 import RankingGame from "./RankingGame";
+import NumberGuess from "./NumberGuess";
 
-type Game = "timing" | "ranking";
+type Game = "timing" | "ranking" | "number";
 
 const GAMES: { id: Game; emoji: string; title: string; desc: string; color: string }[] = [
   {
@@ -21,6 +22,13 @@ const GAMES: { id: Game; emoji: string; title: string; desc: string; color: stri
     desc: "اكتشف الترتيب السرّي — خمّن وشوف كم وحدة في مكانها، وتزيد الصعوبة",
     color: "from-indigo-500/20 to-indigo-500/5 border-indigo-500/40",
   },
+  {
+    id: "number",
+    emoji: "🔢",
+    title: "خمّن الرقم",
+    desc: "رقم سرّي ١-١٠٠ وتلميح أكبر/أصغر — أقل محاولات تفوز",
+    color: "from-amber-500/20 to-amber-500/5 border-amber-500/40",
+  },
 ];
 
 export default function Home() {
@@ -28,6 +36,7 @@ export default function Home() {
 
   if (game === "timing") return <TimingGame onBack={() => setGame(null)} />;
   if (game === "ranking") return <RankingGame onBack={() => setGame(null)} />;
+  if (game === "number") return <NumberGuess onBack={() => setGame(null)} />;
 
   return (
     <main className="flex-1 flex flex-col items-center justify-center px-6 py-12 gap-10">
