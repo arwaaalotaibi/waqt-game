@@ -45,7 +45,11 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
   const [vsTurn, setVsTurn] = useState<1 | 2>(1);
   const [p1Tries, setP1Tries] = useState<number | null>(null);
   const [p2Tries, setP2Tries] = useState<number | null>(null);
+  const [p1Time, setP1Time] = useState<number | null>(null);
+  const [p2Time, setP2Time] = useState<number | null>(null);
   const [wins, setWins] = useState({ p1: 0, p2: 0 });
+  const [criterion, setCriterion] = useState<"tries" | "time">("tries");
+  const turnStartRef = useRef(0); // بداية وقت دور اللاعب الحالي
 
   // السحب
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -68,6 +72,9 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
     setVsTurn(1);
     setP1Tries(null);
     setP2Tries(null);
+    setP1Time(null);
+    setP2Time(null);
+    turnStartRef.current = performance.now();
   }, []);
 
   useEffect(() => {
@@ -128,21 +135,28 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
 
     if (c < level) return; // ما اكتشف الترتيب بعد
 
+    const elapsed = (performance.now() - turnStartRef.current) / 1000;
+
     if (!isVersus) {
       setSolved(true);
       return;
     }
     if (vsTurn === 1) {
       setP1Tries(tries);
+      setP1Time(elapsed);
       setArr([...tokens]);
       setAttempts([]);
       setVsTurn(2);
+      turnStartRef.current = performance.now(); // يبدأ وقت اللاعب الثاني
     } else {
       setP2Tries(tries);
+      setP2Time(elapsed);
       setSolved(true);
-      const t1 = p1Tries ?? 999;
-      if (t1 < tries) setWins((w) => ({ ...w, p1: w.p1 + 1 }));
-      else if (tries < t1) setWins((w) => ({ ...w, p2: w.p2 + 1 }));
+      // الفائز حسب المعيار المختار
+      const a1 = criterion === "tries" ? (p1Tries ?? 999) : (p1Time ?? 9999);
+      const a2 = criterion === "tries" ? tries : elapsed;
+      if (a1 < a2) setWins((w) => ({ ...w, p1: w.p1 + 1 }));
+      else if (a2 < a1) setWins((w) => ({ ...w, p2: w.p2 + 1 }));
     }
   };
 
@@ -154,12 +168,18 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
 
   const playerColor = (n: 1 | 2) => (n === 1 ? "text-sky-400" : "text-pink-400");
   const playerName = (n: 1 | 2) => (n === 1 ? "اللاعب ١" : "اللاعب ٢");
+  const bothDone =
+    criterion === "tries"
+      ? p1Tries !== null && p2Tries !== null
+      : p1Time !== null && p2Time !== null;
+  const m1 = criterion === "tries" ? p1Tries : p1Time;
+  const m2 = criterion === "tries" ? p2Tries : p2Time;
   const vsWinner =
-    p1Tries === null || p2Tries === null
+    !bothDone || m1 === null || m2 === null
       ? null
-      : p1Tries < p2Tries
+      : m1 < m2
         ? 1
-        : p2Tries < p1Tries
+        : m2 < m1
           ? 2
           : 0;
 
@@ -200,7 +220,26 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
 
       {/* لوحة المنافسة */}
       {isVersus && (
-        <div className="w-full max-w-md flex flex-col items-center gap-2">
+        <div className="w-full max-w-md flex flex-col items-center gap-3">
+          {/* معيار الفوز */}
+          <div className="flex gap-1 bg-slate-800/60 p-1 rounded-xl text-xs">
+            {(
+              [
+                ["tries", "🔢 الأقل محاولات"],
+                ["time", "⏱️ الأسرع وقتًا"],
+              ] as ["tries" | "time", string][]
+            ).map(([c, label]) => (
+              <button
+                key={c}
+                onClick={() => setCriterion(c)}
+                className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                  criterion === c ? "bg-amber-500 text-slate-900" : "text-slate-300"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center justify-center gap-6 text-center">
             <div>
               <p className={`text-3xl font-black tabular-nums ${playerColor(1)}`}>{wins.p1}</p>
@@ -291,14 +330,27 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
             ) : (
               <>
                 <div className="flex justify-around">
-                  <div>
-                    <p className={`text-xs font-bold ${playerColor(1)}`}>اللاعب ١</p>
-                    <p className="text-2xl font-black">{p1Tries} محاولة</p>
-                  </div>
-                  <div>
-                    <p className={`text-xs font-bold ${playerColor(2)}`}>اللاعب ٢</p>
-                    <p className="text-2xl font-black">{p2Tries} محاولة</p>
-                  </div>
+                  {([1, 2] as const).map((n) => {
+                    const tries = n === 1 ? p1Tries : p2Tries;
+                    const time = n === 1 ? p1Time : p2Time;
+                    return (
+                      <div key={n}>
+                        <p className={`text-xs font-bold ${playerColor(n)}`}>
+                          {playerName(n)}
+                        </p>
+                        <p
+                          className={`text-2xl font-black ${criterion === "tries" ? "" : "text-slate-400 text-lg"}`}
+                        >
+                          {tries} محاولة
+                        </p>
+                        <p
+                          className={`font-black ${criterion === "time" ? "text-2xl" : "text-slate-400 text-lg"}`}
+                        >
+                          {time?.toFixed(1)} ث
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
                 <p className="mt-3 text-xl font-black">
                   {vsWinner === 0 ? (
@@ -309,7 +361,9 @@ export default function RankingGame({ onBack }: { onBack: () => void }) {
                     </span>
                   )}
                 </p>
-                <p className="text-slate-400 text-xs mt-1">الأقل محاولات يفوز</p>
+                <p className="text-slate-400 text-xs mt-1">
+                  {criterion === "tries" ? "الأقل محاولات يفوز" : "الأسرع وقتًا يفوز"}
+                </p>
               </>
             )}
 
