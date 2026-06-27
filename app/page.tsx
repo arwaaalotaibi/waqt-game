@@ -18,7 +18,7 @@ const GAMES: { id: Game; emoji: string; title: string; desc: string; color: stri
     id: "ranking",
     emoji: "🧩",
     title: "رتّبها",
-    desc: "رتّب العناصر صح — تبدأ بشيئين وتزيد كل ما تنجح",
+    desc: "اكتشف الترتيب السرّي — خمّن وشوف كم وحدة في مكانها، وتزيد الصعوبة",
     color: "from-indigo-500/20 to-indigo-500/5 border-indigo-500/40",
   },
 ];
