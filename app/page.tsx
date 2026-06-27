@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Phase = "idle" | "running" | "result";
-type Mode = "random" | "custom";
+type Mode = "random" | "custom" | "versus";
 
 const STORAGE_KEY = "waqt:best";
 
@@ -37,11 +37,18 @@ export default function Home() {
   const [target, setTarget] = useState(5);
   const [customInput, setCustomInput] = useState("5");
   const [phase, setPhase] = useState<Phase>("idle");
-  const [result, setResult] = useState<number | null>(null); // الوقت الفعلي
+  const [result, setResult] = useState<number | null>(null); // الوقت الفعلي (فردي)
   const [best, setBest] = useState<number | null>(null); // أصغر فرق محقّق
   const [streak, setStreak] = useState(0);
 
+  // حالة المنافسة
+  const [vsTurn, setVsTurn] = useState<1 | 2>(1);
+  const [p1, setP1] = useState<number | null>(null);
+  const [p2, setP2] = useState<number | null>(null);
+  const [wins, setWins] = useState({ p1: 0, p2: 0 });
+
   const startRef = useRef(0);
+  const isVersus = mode === "versus";
 
   useEffect(() => {
     const v = localStorage.getItem(STORAGE_KEY);
@@ -55,14 +62,35 @@ export default function Home() {
   }, []);
 
   const newRound = useCallback(() => {
-    if (mode === "random") rollTarget();
-    else {
+    if (mode === "custom") {
       const n = parseFloat(toEnDigits(customInput));
       setTarget(Number.isFinite(n) && n > 0 ? Math.min(60, n) : 5);
+    } else {
+      rollTarget(); // random + versus
     }
     setResult(null);
     setPhase("idle");
+    if (mode === "versus") {
+      setVsTurn(1);
+      setP1(null);
+      setP2(null);
+    }
   }, [mode, customInput, rollTarget]);
+
+  const switchMode = (m: Mode) => {
+    setMode(m);
+    setResult(null);
+    setPhase("idle");
+    setVsTurn(1);
+    setP1(null);
+    setP2(null);
+    if (m === "custom") {
+      const n = parseFloat(toEnDigits(customInput));
+      setTarget(Number.isFinite(n) && n > 0 ? Math.min(60, n) : 5);
+    } else {
+      rollTarget();
+    }
+  };
 
   const start = () => {
     startRef.current = performance.now();
@@ -71,9 +99,23 @@ export default function Home() {
 
   const stop = () => {
     const elapsed = (performance.now() - startRef.current) / 1000;
-    setResult(elapsed);
     setPhase("result");
 
+    if (isVersus) {
+      if (vsTurn === 1) {
+        setP1(elapsed);
+      } else {
+        setP2(elapsed);
+        // كلاهما لعب → احسب الفائز
+        const d1 = Math.abs((p1 ?? 0) - target);
+        const d2 = Math.abs(elapsed - target);
+        if (d1 < d2) setWins((w) => ({ ...w, p1: w.p1 + 1 }));
+        else if (d2 < d1) setWins((w) => ({ ...w, p2: w.p2 + 1 }));
+      }
+      return;
+    }
+
+    setResult(elapsed);
     const diff = Math.abs(elapsed - target);
     setBest((prev) => {
       const next = prev === null ? diff : Math.min(prev, diff);
@@ -81,6 +123,12 @@ export default function Home() {
       return next;
     });
     setStreak((s) => (diff <= 0.3 ? s + 1 : 0));
+  };
+
+  // انتقال من دور اللاعب الأول إلى الثاني
+  const nextPlayer = () => {
+    setVsTurn(2);
+    setPhase("idle");
   };
 
   const diff = result !== null ? Math.abs(result - target) : 0;
@@ -93,6 +141,15 @@ export default function Home() {
     ok: "text-amber-400",
     bad: "text-rose-400",
   };
+
+  // بيانات المنافسة عند اكتمال الجولة
+  const bothPlayed = p1 !== null && p2 !== null;
+  const d1 = p1 !== null ? Math.abs(p1 - target) : 0;
+  const d2 = p2 !== null ? Math.abs(p2 - target) : 0;
+  const winner = !bothPlayed ? null : d1 < d2 ? 1 : d2 < d1 ? 2 : 0;
+
+  const playerColor = (n: 1 | 2) => (n === 1 ? "text-sky-400" : "text-pink-400");
+  const playerName = (n: 1 | 2) => (n === 1 ? "اللاعب ١" : "اللاعب ٢");
 
   return (
     <main className="flex-1 flex flex-col items-center justify-center px-6 py-10 gap-8">
@@ -108,23 +165,14 @@ export default function Home() {
       <div className="flex gap-2 bg-slate-800/60 p-1 rounded-2xl">
         {(
           [
-            ["random", "🎲 هدف عشوائي"],
-            ["custom", "✏️ أكتب وقتي"],
+            ["random", "🎲 عشوائي"],
+            ["custom", "✏️ وقتي"],
+            ["versus", "🆚 منافسة"],
           ] as [Mode, string][]
         ).map(([m, label]) => (
           <button
             key={m}
-            onClick={() => {
-              setMode(m);
-              setResult(null);
-              setPhase("idle");
-              if (m === "custom") {
-                const n = parseFloat(toEnDigits(customInput));
-                setTarget(Number.isFinite(n) && n > 0 ? Math.min(60, n) : 5);
-              } else {
-                rollTarget();
-              }
-            }}
+            onClick={() => switchMode(m)}
             disabled={phase === "running"}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition disabled:opacity-40 ${
               mode === m ? "bg-indigo-500 text-white" : "text-slate-300"
@@ -156,6 +204,32 @@ export default function Home() {
         </div>
       )}
 
+      {/* شريط المنافسة: لوحة النتائج + دور من */}
+      {isVersus && (
+        <div className="w-full max-w-md flex flex-col items-center gap-3 -mt-3">
+          <div className="flex items-center justify-center gap-6 text-center">
+            <div>
+              <p className={`text-3xl font-black tabular-nums ${playerColor(1)}`}>
+                {wins.p1}
+              </p>
+              <p className="text-slate-400 text-xs">اللاعب ١</p>
+            </div>
+            <span className="text-slate-500 font-bold">—</span>
+            <div>
+              <p className={`text-3xl font-black tabular-nums ${playerColor(2)}`}>
+                {wins.p2}
+              </p>
+              <p className="text-slate-400 text-xs">اللاعب ٢</p>
+            </div>
+          </div>
+          {!bothPlayed && (
+            <p className="text-sm font-bold">
+              <span className={playerColor(vsTurn)}>دور {playerName(vsTurn)}</span>
+            </p>
+          )}
+        </div>
+      )}
+
       {/* بطاقة اللعبة */}
       <section className="w-full max-w-md bg-slate-800/50 border border-slate-700/60 rounded-3xl p-8 text-center shadow-2xl">
         <p className="text-slate-400 text-sm mb-1">الوقت المستهدف</p>
@@ -173,7 +247,8 @@ export default function Home() {
             </div>
           )}
 
-          {phase === "result" && result !== null && verdict && (
+          {/* نتيجة الوضع الفردي */}
+          {!isVersus && phase === "result" && result !== null && verdict && (
             <div className="animate-pop">
               <p className="text-slate-400 text-sm">وقتك الفعلي</p>
               <p className="text-5xl font-black tabular-nums">
@@ -193,8 +268,55 @@ export default function Home() {
             </div>
           )}
 
+          {/* نتيجة المنافسة: انتهى دور اللاعب الأول فقط */}
+          {isVersus && phase === "result" && !bothPlayed && p1 !== null && (
+            <div className="animate-pop">
+              <p className={`text-sm font-bold ${playerColor(1)}`}>
+                انتهى دور اللاعب ١
+              </p>
+              <p className="text-5xl font-black tabular-nums mt-1">
+                {fmt(p1)}
+                <span className="text-xl text-slate-400 mr-1">ث</span>
+              </p>
+              <p className="mt-2 text-slate-400 text-sm">
+                النتيجة تظهر بعد لعب اللاعب ٢ 🤐
+              </p>
+            </div>
+          )}
+
+          {/* نتيجة المنافسة النهائية */}
+          {isVersus && phase === "result" && bothPlayed && p1 !== null && p2 !== null && (
+            <div className="animate-pop w-full">
+              <div className="flex justify-around items-end">
+                <div>
+                  <p className={`text-xs font-bold ${playerColor(1)}`}>اللاعب ١</p>
+                  <p className="text-3xl font-black tabular-nums">{fmt(p1)}</p>
+                  <p className="text-slate-400 text-xs">فرق {fmt(d1)}</p>
+                </div>
+                <div>
+                  <p className={`text-xs font-bold ${playerColor(2)}`}>اللاعب ٢</p>
+                  <p className="text-3xl font-black tabular-nums">{fmt(p2)}</p>
+                  <p className="text-slate-400 text-xs">فرق {fmt(d2)}</p>
+                </div>
+              </div>
+              <p className="mt-4 text-2xl font-black">
+                {winner === 0 ? (
+                  <span className="text-amber-300">تعادل! 🤝</span>
+                ) : (
+                  <span className={playerColor(winner as 1 | 2)}>
+                    فاز {playerName(winner as 1 | 2)} 🏆
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
           {phase === "idle" && (
-            <p className="text-slate-500">اضغط «ابدأ» وقدّر الوقت في رأسك</p>
+            <p className="text-slate-500">
+              {isVersus
+                ? `${playerName(vsTurn)}: اضغط «ابدأ» وقدّر الوقت`
+                : "اضغط «ابدأ» وقدّر الوقت في رأسك"}
+            </p>
           )}
         </div>
 
@@ -215,31 +337,53 @@ export default function Home() {
             أنهِ ⏹
           </button>
         )}
-        {phase === "result" && (
-          <button
-            onClick={newRound}
-            className="w-full py-4 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-white text-xl font-black transition active:scale-95"
-          >
-            جولة جديدة ↻
-          </button>
-        )}
+        {phase === "result" &&
+          (isVersus && !bothPlayed ? (
+            <button
+              onClick={nextPlayer}
+              className="w-full py-4 rounded-2xl bg-pink-500 hover:bg-pink-400 text-white text-xl font-black transition active:scale-95"
+            >
+              دور اللاعب ٢ ←
+            </button>
+          ) : (
+            <button
+              onClick={newRound}
+              className="w-full py-4 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-white text-xl font-black transition active:scale-95"
+            >
+              جولة جديدة ↻
+            </button>
+          ))}
       </section>
 
-      {/* إحصائيات */}
-      <footer className="flex gap-8 text-center">
-        <div>
-          <p className="text-2xl font-black text-emerald-400 tabular-nums">
-            {best === null ? "—" : fmt(best)}
-          </p>
-          <p className="text-slate-400 text-xs">أفضل فرق (ث)</p>
-        </div>
-        <div>
-          <p className="text-2xl font-black text-amber-400 tabular-nums">
-            {streak}
-          </p>
-          <p className="text-slate-400 text-xs">سلسلة الإصابات</p>
-        </div>
-      </footer>
+      {/* إحصائيات الوضع الفردي */}
+      {!isVersus && (
+        <footer className="flex gap-8 text-center">
+          <div>
+            <p className="text-2xl font-black text-emerald-400 tabular-nums">
+              {best === null ? "—" : fmt(best)}
+            </p>
+            <p className="text-slate-400 text-xs">أفضل فرق (ث)</p>
+          </div>
+          <div>
+            <p className="text-2xl font-black text-amber-400 tabular-nums">
+              {streak}
+            </p>
+            <p className="text-slate-400 text-xs">سلسلة الإصابات</p>
+          </div>
+        </footer>
+      )}
+
+      {isVersus && (
+        <button
+          onClick={() => {
+            setWins({ p1: 0, p2: 0 });
+            newRound();
+          }}
+          className="text-slate-400 text-sm underline underline-offset-4"
+        >
+          تصفير النتيجة
+        </button>
+      )}
     </main>
   );
 }
